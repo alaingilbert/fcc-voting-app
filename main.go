@@ -111,6 +111,10 @@ func logoutHandler(c echo.Context) error {
 	return c.Redirect(302, "/")
 }
 
+func getProvider(req *http.Request) (string, error) {
+	return "twitter", nil
+}
+
 func setUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		authCookie, err := c.Cookie("auth-token")
@@ -146,6 +150,12 @@ func ensureIndex(s *mgo.Session) {
 }
 
 func start(c *cli.Context) error {
+	goth.UseProviders(
+		twitter.NewAuthenticate(os.Getenv("TWITTER_KEY"), os.Getenv("TWITTER_SECRET"), "http://127.0.0.1:3001/auth/twitter/callback"),
+	)
+	gothic.Store = sessions.NewCookieStore([]byte(os.Getenv("SESSION_SECRET")))
+	gothic.GetProviderName = getProvider
+
 	ensureIndex(session)
 
 	t := &Template{}
