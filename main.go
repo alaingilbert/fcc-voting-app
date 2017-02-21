@@ -156,6 +156,13 @@ func start(c *cli.Context) error {
 	gothic.Store = sessions.NewCookieStore([]byte(os.Getenv("SESSION_SECRET")))
 	gothic.GetProviderName = getProvider
 
+	var err error
+	session, err = mgo.Dial("mongodb://localhost")
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	session.SetMode(mgo.Monotonic, true)
 	ensureIndex(session)
 
 	t := &Template{}
