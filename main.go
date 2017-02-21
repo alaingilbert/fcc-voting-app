@@ -47,6 +47,57 @@ type Poll struct {
 }
 func mainHandler(c echo.Context) error {
 	return c.String(200, "Hello World")
+func authTwitterHandler(c echo.Context) error {
+	// try to get the user without re-authenticating
+	res := c.Response()
+	req := c.Request()
+	if user, err := gothic.CompleteUserAuth(res, req); err == nil {
+		s := session.Copy()
+		defer s.Close()
+		key, _ := time.Now().MarshalText()
+		token := hex.EncodeToString(hmac.New(sha256.New, key).Sum(nil))
+		cc := s.DB("poll").C("users")
+		if err := cc.Update(bson.M{"twitterid": user.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
+			if !mgo.IsDup(err) {
+				return err
+			}
+		}
+		cookie := http.Cookie{Name: "auth-token", Value: token, Path: "/"}
+		http.SetCookie(c.Response().Writer, &cookie)
+		return c.Redirect(303, "/")
+	} else {
+		gothic.BeginAuthHandler(res, req)
+		return nil
+	}
+}
+
+func authTwitterCallbackHandler(c echo.Context) error {
+	user, err := gothic.CompleteUserAuth(c.Response(), c.Request())
+	if err != nil {
+		return err
+	}
+
+	s := session.Copy()
+	defer s.Close()
+	key, _ := time.Now().MarshalText()
+	token := hex.EncodeToString(hmac.New(sha256.New, key).Sum(nil))
+	var u User
+	u.ID = bson.NewObjectId()
+	u.NickName = user.NickName
+	u.TwitterID = user.UserID
+	u.SessionKey = token
+	cc := s.DB("poll").C("users")
+	if err := cc.Insert(u); err != nil {
+		if !mgo.IsDup(err) {
+			return err
+		}
+	}
+
+	cookie := http.Cookie{Name: "auth-token", Value: token, Path: "/"}
+	http.SetCookie(c.Response().Writer, &cookie)
+	return c.Redirect(303, "/")
+}
+
 func ensureIndex(s *mgo.Session) {
 	s2 := s.Copy()
 	defer s2.Close()
@@ -71,6 +122,8 @@ func start(c *cli.Context) error {
 	port := c.Int("port")
 	e := echo.New()
 	e.GET("/", mainHandler)
+	e.GET("/auth/:provider", authTwitterHandler)
+	e.GET("/auth/:provider/callback", authTwitterCallbackHandler)
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", port)))
 	return nil
 }
