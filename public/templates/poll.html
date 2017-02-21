@@ -40,7 +40,7 @@
 
 <h1>
   Poll: {{ .poll.Title }}
-  {{ if (and .user.UserID (eq .poll.Author .user.UserID)) }}
+  {{ if (and .user.TwitterID (eq .poll.Author .user.TwitterID)) }}
     <a href="/polls/{{ .poll.ID.Hex }}/delete" class="btn btn-danger"><i class="fa fa-times"></i> Delete</a>
   {{ end }}
 </h1>
@@ -54,7 +54,7 @@
       {{ . }}
     </label>
   {{ end }}
-  {{ if .user.UserID }}
+  {{ if .user.TwitterID }}
     <label>
       <div class="form-inline">
         <input type="radio" name="choice" value="" />

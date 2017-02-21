@@ -202,13 +202,13 @@ func authTwitterCallbackHandler(c echo.Context) error {
 }
 
 func logoutHandler(c echo.Context) error {
-	//cookie := &http.Cookie{
+	//cookie1 := &http.Cookie{
 	//	Name:   fmt.Sprintf("twitter%s", gothic.SessionName),
 	//	Value:  "",
 	//	Path:   "/",
 	//	MaxAge: -1,
 	//}
-	//http.SetCookie(c.Response(), cookie)
+	//http.SetCookie(c.Response(), cookie1)
 	cookie := http.Cookie{Name: "auth-token", Value: "", Path: "/"}
 	c.SetCookie(&cookie)
 	return c.Redirect(302, "/")
