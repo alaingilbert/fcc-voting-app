@@ -4,16 +4,21 @@ import (
 	"fmt"
 	"github.com/labstack/echo"
 	"github.com/urfave/cli"
+	"html/template"
 	"os"
 )
 
 type H map[string]interface{}
 
+type Template struct {
+	templates *template.Template
+}
 func mainHandler(c echo.Context) error {
 	return c.String(200, "Hello World")
 }
 
 func start(c *cli.Context) error {
+	t := &Template{}
 	port := c.Int("port")
 	e := echo.New()
 	e.GET("/", mainHandler)
