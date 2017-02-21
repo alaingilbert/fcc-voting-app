@@ -13,6 +13,29 @@ type H map[string]interface{}
 type Template struct {
 	templates *template.Template
 }
+type User struct {
+	ID         bson.ObjectId `bson:"_id"`
+	NickName   string
+	TwitterID  string
+	SessionKey string
+}
+
+type Vote struct {
+	ID        bson.ObjectId `bson:"_id"`
+	IP        *string
+	Author    *string
+	Choice    string
+	CreatedAt time.Time
+}
+
+type Poll struct {
+	ID        bson.ObjectId `json:"id" bson:"_id"`
+	Title     string        `json:"title"`
+	Answers   []string      `json:"answers"`
+	Author    string        `json:"author"`
+	CreatedAt time.Time     `json:"create_at"`
+	Votes     []Vote
+}
 func mainHandler(c echo.Context) error {
 	return c.String(200, "Hello World")
 }
