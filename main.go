@@ -98,6 +98,19 @@ func authTwitterCallbackHandler(c echo.Context) error {
 	return c.Redirect(303, "/")
 }
 
+func logoutHandler(c echo.Context) error {
+	//cookie := &http.Cookie{
+	//	Name:   fmt.Sprintf("twitter%s", gothic.SessionName),
+	//	Value:  "",
+	//	Path:   "/",
+	//	MaxAge: -1,
+	//}
+	//http.SetCookie(c.Response(), cookie)
+	cookie := http.Cookie{Name: "auth-token", Value: "", Path: "/"}
+	c.SetCookie(&cookie)
+	return c.Redirect(302, "/")
+}
+
 func ensureIndex(s *mgo.Session) {
 	s2 := s.Copy()
 	defer s2.Close()
@@ -124,6 +137,7 @@ func start(c *cli.Context) error {
 	e.GET("/", mainHandler)
 	e.GET("/auth/:provider", authTwitterHandler)
 	e.GET("/auth/:provider/callback", authTwitterCallbackHandler)
+	e.GET("/logout", logoutHandler)
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", port)))
 	return nil
 }
