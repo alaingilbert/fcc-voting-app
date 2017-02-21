@@ -115,6 +115,16 @@ func getProvider(req *http.Request) (string, error) {
 	return "twitter", nil
 }
 
+func IsAuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		user := c.Get("user").(User)
+		if user.TwitterID == "" {
+			return c.Redirect(302, "/")
+		}
+		return next(c)
+	}
+}
+
 func setUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		authCookie, err := c.Cookie("auth-token")
@@ -176,6 +186,14 @@ func start(c *cli.Context) error {
 	e.GET("/auth/:provider", authTwitterHandler)
 	e.GET("/auth/:provider/callback", authTwitterCallbackHandler)
 	e.GET("/logout", logoutHandler)
+
+	needAuthGroup := e.Group("")
+	needAuthGroup.Use(IsAuthMiddleware)
+	needAuthGroup.GET("/newpoll", newPollHandler)
+	needAuthGroup.POST("/newpoll", createNewPollHandler)
+	needAuthGroup.GET("/mypolls", myPollsHandler)
+	needAuthGroup.GET("/account", accountHandler)
+
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%d", port)))
 	return nil
 }
