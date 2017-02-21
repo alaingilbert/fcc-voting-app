@@ -152,6 +152,9 @@ func start(c *cli.Context) error {
 	port := c.Int("port")
 	e := echo.New()
 	e.Use(setUserMiddleware)
+	e.Renderer = t
+	e.Debug = true
+	e.Logger.SetLevel(log.INFO)
 	e.GET("/", mainHandler)
 	e.GET("/auth/:provider", authTwitterHandler)
 	e.GET("/auth/:provider/callback", authTwitterCallbackHandler)
