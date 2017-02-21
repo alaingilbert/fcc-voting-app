@@ -13,6 +13,15 @@ type H map[string]interface{}
 type Template struct {
 	templates *template.Template
 }
+
+func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	var files []string
+	files = append(files, "public/templates/base.html")
+	files = append(files, fmt.Sprintf("public/templates/%s.html", name))
+	tmpl := template.Must(template.ParseFiles(files...))
+	return tmpl.Execute(w, data)
+}
+
 type User struct {
 	ID         bson.ObjectId `bson:"_id"`
 	NickName   string
