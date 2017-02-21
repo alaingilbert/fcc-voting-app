@@ -111,6 +111,23 @@ func logoutHandler(c echo.Context) error {
 	return c.Redirect(302, "/")
 }
 
+func setUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		authCookie, err := c.Cookie("auth-token")
+		if err != nil {
+			fmt.Println("cannot read auth-token", err)
+		}
+		s := session.Copy()
+		defer s.Close()
+		cc := s.DB("poll").C("users")
+		var user User
+		if err := cc.Find(bson.M{"sessionkey": authCookie.Value}).One(&user); err != nil {
+		}
+		c.Set("user", user)
+		return next(c)
+	}
+}
+
 func ensureIndex(s *mgo.Session) {
 	s2 := s.Copy()
 	defer s2.Close()
@@ -134,6 +151,7 @@ func start(c *cli.Context) error {
 	t := &Template{}
 	port := c.Int("port")
 	e := echo.New()
+	e.Use(setUserMiddleware)
 	e.GET("/", mainHandler)
 	e.GET("/auth/:provider", authTwitterHandler)
 	e.GET("/auth/:provider/callback", authTwitterCallbackHandler)
