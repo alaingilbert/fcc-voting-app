@@ -1,0 +1,14 @@
+{{define "content"}}
+<h1>fcc-voting</h1>
+<p>Below are polls hosted by fcc-voting.</p>
+{{ if .user.NickName }}
+  <p>Select a poll to see the results and vote, <a href="/newpoll">or make a new poll!</a></p>
+{{ else }}
+  <p>Select a poll to see the results and vote, or sign-in to make a new poll.</p>
+{{ end }}
+<ul>
+{{ range $index, $poll := .polls }}
+  <li><a href="/polls/{{$poll.ID.Hex}}">{{$poll.Title}}</a></li>
+{{ end }}
+</ul>
+{{end}}

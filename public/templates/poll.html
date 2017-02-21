@@ -1,0 +1,92 @@
+{{ define "extra-head" }}
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<script  src="https://cdn.jsdelivr.net/lodash/4.17.4/lodash.min.js"></script>
+<style>
+#choices label {
+  display: block;
+  border-top: 1px;
+  border-left: 1px;
+  border-right: 1px;
+  border-bottom: 0; 
+  border-style: solid;
+  border-color: #ddd;
+  padding: 10px;
+  margin: 0;
+}
+#choices label:hover {
+  background-color: #eee;
+}
+#choices label input[type=radio] {
+  margin-right: 10px;
+}
+#choices label:first-child {
+  border-radius: 5px 5px 0 0;
+}
+#choices label:last-child {
+  border-radius: 0 0 5px 5px;
+  border-bottom: 1px;
+  border-style: solid;
+  border-color: #ddd;
+}
+#choices {
+  margin: 20px 0;
+}
+</style>
+
+{{ end }}
+
+
+{{ define "content" }}
+
+<h1>
+  Poll: {{ .poll.Title }}
+  {{ if (and .user.UserID (eq .poll.Author .user.UserID)) }}
+    <a href="/polls/{{ .poll.ID.Hex }}/delete" class="btn btn-danger"><i class="fa fa-times"></i> Delete</a>
+  {{ end }}
+</h1>
+
+{{ if not .already_voted }}
+<form action="/polls/{{ .poll.ID.Hex }}" method="POST">
+  <div id="choices">
+  {{ range .poll.Answers }}
+    <label>
+      <input type="radio" name="choice" value="{{ . }}" />
+      {{ . }}
+    </label>
+  {{ end }}
+  {{ if .user.UserID }}
+    <label>
+      <div class="form-inline">
+        <input type="radio" name="choice" value="" />
+        Other:
+        <input type="text" class="form-control" name="other_choice" />
+      </div>
+    </label>
+  {{ end }}
+  </div>
+  <button type="submit" class="btn btn-success">Vote!</button>
+</form>
+{{ else }}
+<div id="piechart" style="width: 900px; height: 500px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(drawChart);
+  function drawChart() {
+    var criss = {{ .aggr }};
+    var header = [['Label', 'Value']];
+    var tmp = [];
+    _.each(criss, (el) => {
+      tmp.push([el._id, el.count]);
+    });
+    var data = google.visualization.arrayToDataTable(_.union(header, tmp));
+    var options = {
+      title: 'Results'
+    };
+    var chart = new google.visualization.PieChart(document.getElementById('piechart'));
+    chart.draw(data, options);
+  }
+</script>
+{{ end }}
+
+
+{{ end }}

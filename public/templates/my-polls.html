@@ -1,0 +1,13 @@
+{{ define "content" }}
+
+<h1>My polls</h1>
+
+<p>Select a poll to see the results and vote, <a href="/newpoll">or make a new poll!</a></p>
+
+<ul>
+{{ range .polls }}
+  <li><a href="/polls/{{ .ID.Hex }}">{{ .Title }}</a></li>
+{{ end }}
+</ul>
+
+{{ end }}

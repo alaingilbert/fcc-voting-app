@@ -1,0 +1,25 @@
+{{define "content"}}
+<link rel="stylesheet" type="text/css" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<div class="container">
+  <h1>Make a new poll!</h1>
+  {{ if .error }}
+  <div class="alert alert-danger">
+    <strong>Error:</strong> {{ .error }}
+  </div>
+  {{ end }}
+  <form method="post" action="/newpoll">
+    <div class="form-group">
+      <label>Title:</label>
+      <input type="text" name="title" class="form-control" value="{{ .title }}" />
+    </div>
+    <div class="form-group">
+      <label>Options (separated by lines):</label>
+      <textarea class="form-control" name="answers">{{ .answers }}</textarea>
+    </div>
+    <div class="form-group">
+      <button type="submit" class="btn btn-primary">Make!</button>
+    </div>
+  </form>
+</div>
+{{end}}
