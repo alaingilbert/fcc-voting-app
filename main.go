@@ -173,23 +173,30 @@ func GenerateToken() string {
 	return token
 }
 
+func SetUserAuthToken(gothUser goth.User, token string) error {
+	s := session.Copy()
+	defer s.Close()
+	usersCollection := s.DB("poll").C("users")
+	if err := usersCollection.Update(bson.M{"twitterid": gothUser.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
+		u := NewUserFromGothUser(gothUser)
+		u.SessionKey = token
+		if err := usersCollection.Insert(*u); err != nil {
+			if !mgo.IsDup(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func authTwitterHandler(c echo.Context) error {
 	// try to get the user without re-authenticating
 	res := c.Response()
 	req := c.Request()
-	if user, err := gothic.CompleteUserAuth(res, req); err == nil {
-		s := session.Copy()
-		defer s.Close()
+	if gothUser, err := gothic.CompleteUserAuth(res, req); err == nil {
 		token := GenerateToken()
-		usersCollection := s.DB("poll").C("users")
-		if err := usersCollection.Update(bson.M{"twitterid": user.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
-			u := NewUserFromGothUser(user)
-			u.SessionKey = token
-			if err := usersCollection.Insert(*u); err != nil {
-				if !mgo.IsDup(err) {
-					return err
-				}
-			}
+		if err := SetUserAuthToken(gothUser, token); err != nil {
+			return err
 		}
 		cookie := http.Cookie{Name: authTokenCookieName, Value: token, Path: "/"}
 		c.SetCookie(&cookie)
@@ -205,18 +212,9 @@ func authTwitterCallbackHandler(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	s := session.Copy()
-	defer s.Close()
 	token := GenerateToken()
-	usersCollection := s.DB("poll").C("users")
-	if err := usersCollection.Update(bson.M{"twitterid": gothUser.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
-		u := NewUserFromGothUser(gothUser)
-		u.SessionKey = token
-		if err := usersCollection.Insert(*u); err != nil {
-			if !mgo.IsDup(err) {
-				return err
-			}
-		}
+	if err := SetUserAuthToken(gothUser, token); err != nil {
+		return err
 	}
 	cookie := http.Cookie{Name: authTokenCookieName, Value: token, Path: "/"}
 	c.SetCookie(&cookie)
