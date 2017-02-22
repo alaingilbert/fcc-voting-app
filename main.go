@@ -26,6 +26,7 @@ type H map[string]interface{}
 
 var session *mgo.Session
 var authTokenCookieName = "auth-token"
+var mongodbDatabase string
 
 type Template struct {
 	templates *template.Template
@@ -69,7 +70,7 @@ type Poll struct {
 func getPolls() []Poll {
 	s := session.Copy()
 	defer s.Close()
-	c := s.DB("poll").C("polls")
+	c := s.DB(mongodbDatabase).C("polls")
 	var polls []Poll
 	if err := c.Find(bson.M{}).All(&polls); err != nil {
 		fmt.Println(err)
@@ -145,7 +146,7 @@ func createNewPollHandler(c echo.Context) error {
 	poll.Answers = answers
 	poll.Author = user.TwitterID
 	poll.CreatedAt = time.Now()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	err := pollsCollection.Insert(poll)
 	if err != nil {
 		return err
@@ -176,7 +177,7 @@ func GenerateToken() string {
 func SetUserAuthToken(gothUser goth.User, token string) error {
 	s := session.Copy()
 	defer s.Close()
-	usersCollection := s.DB("poll").C("users")
+	usersCollection := s.DB(mongodbDatabase).C("users")
 	if err := usersCollection.Update(bson.M{"twitterid": gothUser.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
 		u := NewUserFromGothUser(gothUser)
 		u.SessionKey = token
@@ -242,7 +243,7 @@ func accountHandler(c echo.Context) error {
 func getVotesAggrForPoll(pollID string) ([]bson.M, error) {
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	match := bson.M{"$match": bson.M{"_id": bson.ObjectIdHex(pollID)}}
 	project := bson.M{"$project": bson.M{"votes": 1}}
 	unwind := bson.M{"$unwind": "$votes"}
@@ -259,7 +260,7 @@ func pollHandler(c echo.Context) error {
 	ip := c.RealIP()
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	var poll Poll
 	if err := pollsCollection.Find(bson.M{"_id": bson.ObjectIdHex(pollID)}).One(&poll); err != nil {
 		return c.Redirect(302, "/")
@@ -278,7 +279,7 @@ func myPollsHandler(c echo.Context) error {
 	user := c.Get("user").(User)
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	var polls []Poll
 	err := pollsCollection.Find(bson.M{"author": user.TwitterID}).All(&polls)
 	if err != nil {
@@ -293,7 +294,7 @@ func deletePollHandler(c echo.Context) error {
 	user := c.Get("user").(User)
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	if err := pollsCollection.Remove(bson.M{"_id": bson.ObjectIdHex(c.Param("id")), "author": user.TwitterID}); err != nil {
 		fmt.Println(err)
 		return c.Redirect(302, "/mypolls")
@@ -304,7 +305,7 @@ func deletePollHandler(c echo.Context) error {
 func hasUserVotedOnPoll(userID, IP, pollID string) bool {
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 	err := pollsCollection.Find(bson.M{
 		"_id": bson.ObjectIdHex(pollID),
 		"votes": bson.M{
@@ -337,7 +338,7 @@ func voteHandler(c echo.Context) error {
 
 	s := session.Copy()
 	defer s.Close()
-	pollsCollection := s.DB("poll").C("polls")
+	pollsCollection := s.DB(mongodbDatabase).C("polls")
 
 	if hasUserVotedOnPoll(user.TwitterID, ip, pollID) {
 		return c.String(400, "You can't vote twice")
@@ -380,7 +381,7 @@ func voteHandler(c echo.Context) error {
 func ensureIndex() {
 	s := session.Copy()
 	defer s.Close()
-	c := s.DB("poll").C("users")
+	c := s.DB(mongodbDatabase).C("users")
 	index := mgo.Index{
 		Key:        []string{"twitterid"},
 		Unique:     true,
@@ -422,7 +423,7 @@ func SetUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 		s := session.Copy()
 		defer s.Close()
-		usersCollection := s.DB("poll").C("users")
+		usersCollection := s.DB(mongodbDatabase).C("users")
 		if err := usersCollection.Find(bson.M{"sessionkey": authCookie.Value}).One(&user); err != nil {
 		}
 		c.Set("user", user)
@@ -441,8 +442,8 @@ func start(c *cli.Context) error {
 	gothic.Store = sessions.NewCookieStore([]byte(os.Getenv("SESSION_SECRET")))
 	gothic.GetProviderName = getProvider
 
+	mongodbDatabase = os.Getenv("MONGODB_DBNAME")
 	var err error
-	fmt.Println("debug:", os.Getenv("MONGODB_URI"))
 	session, err = mgo.Dial(os.Getenv("MONGODB_URI"))
 	if err != nil {
 		return err
