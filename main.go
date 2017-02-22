@@ -442,7 +442,7 @@ func start(c *cli.Context) error {
 	gothic.GetProviderName = getProvider
 
 	var err error
-	session, err = mgo.Dial(os.Getenv("MONGODB_URL"))
+	session, err = mgo.Dial(os.Getenv("MONGODB_URI"))
 	if err != nil {
 		return err
 	}
