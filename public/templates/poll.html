@@ -1,13 +1,28 @@
 {{ define "extra-head" }}
 <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 <script  src="https://cdn.jsdelivr.net/lodash/4.17.4/lodash.min.js"></script>
+<script>window.twttr = (function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0],
+    t = window.twttr || {};
+  if (d.getElementById(id)) return t;
+  js = d.createElement(s);
+  js.id = id;
+  js.src = "https://platform.twitter.com/widgets.js";
+  fjs.parentNode.insertBefore(js, fjs);
+  t._e = [];
+  t.ready = function(f) {
+    t._e.push(f);
+  };
+  return t;
+}(document, "script", "twitter-wjs"));
+</script>
 <style>
 #choices label {
   display: block;
   border-top: 1px;
   border-left: 1px;
   border-right: 1px;
-  border-bottom: 0; 
+  border-bottom: 0;
   border-style: solid;
   border-color: #ddd;
   padding: 10px;
@@ -44,6 +59,14 @@
     <a href="/polls/{{ .poll.ID.Hex }}/delete" class="btn btn-danger"><i class="fa fa-times"></i> Delete</a>
   {{ end }}
 </h1>
+
+<a class="twitter-share-button" href="https://twitter.com/intent/tweet?text=Vote on this poll" data-size="large">Tweet</a>
+
+{{ if .error }}
+<div class="alert alert-danger">
+  <strong>Error:</strong> {{ .error }}
+</div>
+{{ end }}
 
 {{ if not .already_voted }}
 <form action="/polls/{{ .poll.ID.Hex }}" method="POST">

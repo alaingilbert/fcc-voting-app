@@ -25,6 +25,7 @@ import (
 type H map[string]interface{}
 
 var session *mgo.Session
+var authTokenCookieName = "auth-token"
 
 type Template struct {
 	templates *template.Template
@@ -39,10 +40,13 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Con
 }
 
 type User struct {
-	ID         bson.ObjectId `bson:"_id"`
-	NickName   string
-	TwitterID  string
-	SessionKey string
+	ID                 bson.ObjectId `bson:"_id"`
+	NickName           string
+	TwitterID          string
+	SessionKey         string
+	TwitterAccessToken string
+	TwitterAvatarURL   string
+	Name               string
 }
 
 type Vote struct {
@@ -67,8 +71,7 @@ func getPolls() []Poll {
 	defer s.Close()
 	c := s.DB("poll").C("polls")
 	var polls []Poll
-	err := c.Find(bson.M{}).All(&polls)
-	if err != nil {
+	if err := c.Find(bson.M{}).All(&polls); err != nil {
 		fmt.Println(err)
 		return polls
 	}
@@ -142,12 +145,32 @@ func createNewPollHandler(c echo.Context) error {
 	poll.Answers = answers
 	poll.Author = user.TwitterID
 	poll.CreatedAt = time.Now()
-	cc := s.DB("poll").C("polls")
-	err := cc.Insert(poll)
+	pollsCollection := s.DB("poll").C("polls")
+	err := pollsCollection.Insert(poll)
 	if err != nil {
 		return err
 	}
 	return c.Redirect(303, fmt.Sprintf("/polls/%s", poll.ID.Hex()))
+}
+
+func NewUserFromGothUser(gothUser goth.User) *User {
+	u := new(User)
+	u.ID = bson.NewObjectId()
+	u.NickName = gothUser.NickName
+	u.TwitterID = gothUser.UserID
+	u.SessionKey = ""
+	u.TwitterAccessToken = gothUser.AccessToken
+	u.TwitterAvatarURL = gothUser.AvatarURL
+	u.Name = gothUser.Name
+	return u
+}
+
+func GenerateToken() string {
+	// This error can safely be ignored.
+	// Only crash when year is outside of [0,9999]
+	key, _ := time.Now().MarshalText()
+	token := hex.EncodeToString(hmac.New(sha256.New, key).Sum(nil))
+	return token
 }
 
 func authTwitterHandler(c echo.Context) error {
@@ -157,16 +180,19 @@ func authTwitterHandler(c echo.Context) error {
 	if user, err := gothic.CompleteUserAuth(res, req); err == nil {
 		s := session.Copy()
 		defer s.Close()
-		key, _ := time.Now().MarshalText()
-		token := hex.EncodeToString(hmac.New(sha256.New, key).Sum(nil))
-		cc := s.DB("poll").C("users")
-		if err := cc.Update(bson.M{"twitterid": user.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
-			if !mgo.IsDup(err) {
-				return err
+		token := GenerateToken()
+		usersCollection := s.DB("poll").C("users")
+		if err := usersCollection.Update(bson.M{"twitterid": user.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
+			u := NewUserFromGothUser(user)
+			u.SessionKey = token
+			if err := usersCollection.Insert(*u); err != nil {
+				if !mgo.IsDup(err) {
+					return err
+				}
 			}
 		}
-		cookie := http.Cookie{Name: "auth-token", Value: token, Path: "/"}
-		http.SetCookie(c.Response().Writer, &cookie)
+		cookie := http.Cookie{Name: authTokenCookieName, Value: token, Path: "/"}
+		c.SetCookie(&cookie)
 		return c.Redirect(303, "/")
 	} else {
 		gothic.BeginAuthHandler(res, req)
@@ -175,29 +201,25 @@ func authTwitterHandler(c echo.Context) error {
 }
 
 func authTwitterCallbackHandler(c echo.Context) error {
-	user, err := gothic.CompleteUserAuth(c.Response(), c.Request())
+	gothUser, err := gothic.CompleteUserAuth(c.Response(), c.Request())
 	if err != nil {
 		return err
 	}
-
 	s := session.Copy()
 	defer s.Close()
-	key, _ := time.Now().MarshalText()
-	token := hex.EncodeToString(hmac.New(sha256.New, key).Sum(nil))
-	var u User
-	u.ID = bson.NewObjectId()
-	u.NickName = user.NickName
-	u.TwitterID = user.UserID
-	u.SessionKey = token
-	cc := s.DB("poll").C("users")
-	if err := cc.Insert(u); err != nil {
-		if !mgo.IsDup(err) {
-			return err
+	token := GenerateToken()
+	usersCollection := s.DB("poll").C("users")
+	if err := usersCollection.Update(bson.M{"twitterid": gothUser.UserID}, bson.M{"$set": bson.M{"sessionkey": token}}); err != nil {
+		u := NewUserFromGothUser(gothUser)
+		u.SessionKey = token
+		if err := usersCollection.Insert(*u); err != nil {
+			if !mgo.IsDup(err) {
+				return err
+			}
 		}
 	}
-
-	cookie := http.Cookie{Name: "auth-token", Value: token, Path: "/"}
-	http.SetCookie(c.Response().Writer, &cookie)
+	cookie := http.Cookie{Name: authTokenCookieName, Value: token, Path: "/"}
+	c.SetCookie(&cookie)
 	return c.Redirect(303, "/")
 }
 
@@ -208,59 +230,26 @@ func logoutHandler(c echo.Context) error {
 	//	Path:   "/",
 	//	MaxAge: -1,
 	//}
-	//http.SetCookie(c.Response(), cookie1)
-	cookie := http.Cookie{Name: "auth-token", Value: "", Path: "/"}
+	//c.SetCookie(&cookie1)
+	cookie := http.Cookie{Name: authTokenCookieName, Value: "", Path: "/"}
 	c.SetCookie(&cookie)
 	return c.Redirect(302, "/")
 }
 
 func accountHandler(c echo.Context) error {
-	user, err := gothic.CompleteUserAuth(c.Response(), c.Request())
-	if err != nil {
-		return c.Redirect(302, "/")
-	}
-	data := H{"user": user}
+	data := H{"user": c.Get("user")}
 	return c.Render(200, "user", data)
 }
 
-func getProvider(req *http.Request) (string, error) {
-	return "twitter", nil
-}
-
-func IsAuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		user := c.Get("user").(User)
-		if user.TwitterID == "" {
-			return c.Redirect(302, "/")
-		}
-		return next(c)
-	}
-}
-
-func setUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		authCookie, err := c.Cookie("auth-token")
-		if err != nil {
-			fmt.Println("cannot read auth-token", err)
-		}
-		s := session.Copy()
-		defer s.Close()
-		cc := s.DB("poll").C("users")
-		var user User
-		if err := cc.Find(bson.M{"sessionkey": authCookie.Value}).One(&user); err != nil {
-		}
-		c.Set("user", user)
-		return next(c)
-	}
-}
-
-func getVotesAggrForPoll(s *mgo.Session, pollID string) ([]bson.M, error) {
-	cc := s.DB("poll").C("polls")
+func getVotesAggrForPoll(pollID string) ([]bson.M, error) {
+	s := session.Copy()
+	defer s.Close()
+	pollsCollection := s.DB("poll").C("polls")
 	match := bson.M{"$match": bson.M{"_id": bson.ObjectIdHex(pollID)}}
 	project := bson.M{"$project": bson.M{"votes": 1}}
 	unwind := bson.M{"$unwind": "$votes"}
 	group := bson.M{"$group": bson.M{"_id": "$votes.choice", "count": bson.M{"$sum": 1}}}
-	pipe := cc.Pipe([]bson.M{match, project, unwind, group})
+	pipe := pollsCollection.Pipe([]bson.M{match, project, unwind, group})
 	var results []bson.M
 	err := pipe.All(&results)
 	return results, err
@@ -272,16 +261,16 @@ func pollHandler(c echo.Context) error {
 	ip := c.RealIP()
 	s := session.Copy()
 	defer s.Close()
-	cc := s.DB("poll").C("polls")
+	pollsCollection := s.DB("poll").C("polls")
 	var poll Poll
-	if err := cc.Find(bson.M{"_id": bson.ObjectIdHex(pollID)}).One(&poll); err != nil {
+	if err := pollsCollection.Find(bson.M{"_id": bson.ObjectIdHex(pollID)}).One(&poll); err != nil {
 		return c.Redirect(302, "/")
 	}
 	data := H{"user": user, "poll": poll}
-	alreadyVoted := hasUserVotedOnPoll(s, user.TwitterID, ip, pollID)
+	alreadyVoted := hasUserVotedOnPoll(user.TwitterID, ip, pollID)
 	data["already_voted"] = alreadyVoted
 	if alreadyVoted {
-		aggr, _ := getVotesAggrForPoll(s, pollID)
+		aggr, _ := getVotesAggrForPoll(pollID)
 		data["aggr"] = aggr
 	}
 	return c.Render(200, "poll", data)
@@ -291,9 +280,9 @@ func myPollsHandler(c echo.Context) error {
 	user := c.Get("user").(User)
 	s := session.Copy()
 	defer s.Close()
-	cc := s.DB("poll").C("polls")
+	pollsCollection := s.DB("poll").C("polls")
 	var polls []Poll
-	err := cc.Find(bson.M{"author": user.TwitterID}).All(&polls)
+	err := pollsCollection.Find(bson.M{"author": user.TwitterID}).All(&polls)
 	if err != nil {
 		fmt.Println(err)
 		return c.Redirect(302, "/")
@@ -306,18 +295,19 @@ func deletePollHandler(c echo.Context) error {
 	user := c.Get("user").(User)
 	s := session.Copy()
 	defer s.Close()
-	cc := s.DB("poll").C("polls")
-	err := cc.Remove(bson.M{"_id": bson.ObjectIdHex(c.Param("id")), "author": user.TwitterID})
-	if err != nil {
+	pollsCollection := s.DB("poll").C("polls")
+	if err := pollsCollection.Remove(bson.M{"_id": bson.ObjectIdHex(c.Param("id")), "author": user.TwitterID}); err != nil {
 		fmt.Println(err)
 		return c.Redirect(302, "/mypolls")
 	}
 	return c.Redirect(302, "/mypolls")
 }
 
-func hasUserVotedOnPoll(s *mgo.Session, userID, IP, pollID string) bool {
-	cc := s.DB("poll").C("polls")
-	err := cc.Find(bson.M{
+func hasUserVotedOnPoll(userID, IP, pollID string) bool {
+	s := session.Copy()
+	defer s.Close()
+	pollsCollection := s.DB("poll").C("polls")
+	err := pollsCollection.Find(bson.M{
 		"_id": bson.ObjectIdHex(pollID),
 		"votes": bson.M{
 			"$elemMatch": bson.M{
@@ -349,14 +339,14 @@ func voteHandler(c echo.Context) error {
 
 	s := session.Copy()
 	defer s.Close()
-	cc := s.DB("poll").C("polls")
+	pollsCollection := s.DB("poll").C("polls")
 
-	if hasUserVotedOnPoll(s, user.TwitterID, ip, pollID) {
+	if hasUserVotedOnPoll(user.TwitterID, ip, pollID) {
 		return c.String(400, "You can't vote twice")
 	}
 
 	var poll Poll
-	if err := cc.Find(bson.M{"_id": bson.ObjectIdHex(pollID)}).One(&poll); err != nil {
+	if err := pollsCollection.Find(bson.M{"_id": bson.ObjectIdHex(pollID)}).One(&poll); err != nil {
 		return c.String(404, "Poll not found")
 	}
 	vote := Vote{}
@@ -367,11 +357,13 @@ func voteHandler(c echo.Context) error {
 	}
 	if choice == "" {
 		if user.TwitterID == "" {
-			return c.String(400, "You have to be authenticated to create a new choice")
+			data := H{"user": user, "poll": poll, "error": "You have to be authenticated to create a new choice"}
+			return c.Render(200, "poll", data)
 		}
 		newChoice := strings.Trim(c.FormValue("other_choice"), " \n\r\t")
 		if newChoice == "" {
-			return c.String(400, "You cannot leave an empty vote")
+			data := H{"user": user, "poll": poll, "error": "You cannot leave en empty vote"}
+			return c.Render(200, "poll", data)
 		}
 		if !inArray(newChoice, poll.Answers) {
 			poll.Answers = append(poll.Answers, newChoice)
@@ -381,16 +373,16 @@ func voteHandler(c echo.Context) error {
 		vote.Choice = choice
 	}
 	poll.Votes = append(poll.Votes, vote)
-	if err := cc.Update(bson.M{"_id": bson.ObjectIdHex(pollID)}, &poll); err != nil {
+	if err := pollsCollection.Update(bson.M{"_id": bson.ObjectIdHex(pollID)}, &poll); err != nil {
 		return c.String(500, "Unable to update poll")
 	}
 	return c.Redirect(303, fmt.Sprintf("/polls/%s", pollID))
 }
 
-func ensureIndex(s *mgo.Session) {
-	s2 := s.Copy()
-	defer s2.Close()
-	c := session.DB("poll").C("users")
+func ensureIndex() {
+	s := session.Copy()
+	defer s.Close()
+	c := s.DB("poll").C("users")
 	index := mgo.Index{
 		Key:        []string{"twitterid"},
 		Unique:     true,
@@ -404,26 +396,66 @@ func ensureIndex(s *mgo.Session) {
 	}
 }
 
+// IsAuthMiddleware will ensure user is authenticated.
+// - Find user from context
+// - If user is empty, redirect to home
+func IsAuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		user := c.Get("user").(User)
+		if user.TwitterID == "" {
+			return c.Redirect(302, "/")
+		}
+		return next(c)
+	}
+}
+
+// SetUserMiddleware Get user and put it into echo context.
+// - Get auth-token from cookie
+// - If exists, get user from database
+// - If found, set user in echo context
+// - Otherwise, empty user will be put in context
+func SetUserMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var user User
+		authCookie, err := c.Cookie(authTokenCookieName)
+		if err != nil {
+			c.Set("user", user)
+			return next(c)
+		}
+		s := session.Copy()
+		defer s.Close()
+		usersCollection := s.DB("poll").C("users")
+		if err := usersCollection.Find(bson.M{"sessionkey": authCookie.Value}).One(&user); err != nil {
+		}
+		c.Set("user", user)
+		return next(c)
+	}
+}
+
+func getProvider(req *http.Request) (string, error) {
+	return "twitter", nil
+}
+
 func start(c *cli.Context) error {
 	goth.UseProviders(
-		twitter.NewAuthenticate(os.Getenv("TWITTER_KEY"), os.Getenv("TWITTER_SECRET"), "http://127.0.0.1:3001/auth/twitter/callback"),
+		twitter.NewAuthenticate(os.Getenv("TWITTER_KEY"), os.Getenv("TWITTER_SECRET"), os.Getenv("TWITTER_CALLBACK")),
 	)
 	gothic.Store = sessions.NewCookieStore([]byte(os.Getenv("SESSION_SECRET")))
 	gothic.GetProviderName = getProvider
 
 	var err error
-	session, err = mgo.Dial("mongodb://localhost")
+	session, err = mgo.Dial(os.Getenv("MONGODB_URL"))
 	if err != nil {
 		return err
 	}
 	defer session.Close()
 	session.SetMode(mgo.Monotonic, true)
-	ensureIndex(session)
+	ensureIndex()
 
 	t := &Template{}
 	port := c.Int("port")
 	e := echo.New()
-	e.Use(setUserMiddleware)
+	e.Use(SetUserMiddleware)
 	e.Renderer = t
 	e.Debug = true
 	e.Logger.SetLevel(log.INFO)
@@ -450,8 +482,8 @@ func main() {
 	app := cli.NewApp()
 	app.Author = "Alain Gilbert"
 	app.Email = "alain.gilbert.15@gmail.com"
-	app.Name = "File Metadata Microservice"
-	app.Usage = "File Metadata Microservice"
+	app.Name = "FCC voting app"
+	app.Usage = "FCC voting app"
 	app.Version = "0.0.1"
 	app.Flags = []cli.Flag{
 		cli.IntFlag{
