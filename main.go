@@ -448,7 +448,7 @@ func start(c *cli.Context) error {
 	}
 	defer session.Close()
 	session.SetMode(mgo.Monotonic, true)
-	ensureIndex()
+	//ensureIndex()
 
 	t := &Template{}
 	port := c.Int("port")
